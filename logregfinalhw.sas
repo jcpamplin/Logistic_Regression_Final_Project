@@ -8,50 +8,70 @@
 libname logistic 'C:\Users\14lmu\OneDrive\Documents\LogisticRegressionData\MSA2019LogisticData\data';
 run;
 
-*first change winbid to binary variable that records as a 0 or 1; 
+proc means data=logistic.construction nmiss n mean stddev min max; 
+run; 
 
-data logistic.construction_new;
+data logistic.construction;
+set logistic.construction;
+markup = (Winning_Bid_Price__Millions_ - Estimated_Cost__Millions_)/(Estimated_Cost__Millions_);
+run; 
+
+%let Competitors = Competitor_A Competitor_B Competitor_C Competitor_D Competitor_E Competitor_F Competitor_G Competitor_H Competitor_I Competitor_J;
+%let AllVar = markup Estimated_Years_To_Complete  Number_Of_Competitor_Bids Sector Region_of_Country;
+
+data logistic.construction;
 set logistic.construction;
 if win_bid = "Yes" then resp = 1;
 else resp = 0;
 run; 
 
-*Fit a model with all variables from assignment;  
-%let Competitors = Competitor_A Competitor_B Competitor_C Competitor_D Competitor_E Competitor_F Competitor_G Competitor_H Competitor_I Competitor_J;
-%let AllVar = Estimated_Cost__Millions_ Estimated_Years_To_Complete Bid_Price__Millions_ Sector Region_of_Country Number_Of_Competitor_Bids Winning_Bid_Price__Millions_;
-*Region_of_Country;
-proc logistic data=logistic.construction_new;
-	class Region_of_Country Sector;
-	model resp(event='1') = &AllVar &Competitors/ plcl plrl;
+proc reg data=logistic.construction;
+	model resp = &AllVar &Competitors;
 run;
-title; 
-*Almost ALL insignificant here; 
-*AIC: 69.391; 
+quit;
 
 *Probably some multicollinearity going on, so let's explore; 
-proc reg data=logistic.construction_new;
+proc reg data=logistic.construction;
 	model resp = &AllVar &Competitors / tol vif;
 run;
 quit;
 *huge multicollinearity with Winning_Bid_Price__Millions_ Bid_Price__Millions_ and Estimated_Cost__Millions_;
-*This is obvious, but these seem like they should be really important factors; 
-*If the winning bid and our bid match, then that means we won. 
-*Could we take the difference between these and see how off we are on losing bids?;
+
+*Create training and testing data sets;
+data training testing;
+	set logistic.construction;
+	if ranuni(4) >= .3 then output training;
+    else output testing;
+run;
+
+*Fit a model with all variables from assignment;  
+proc logistic data=training;
+	class Region_of_Country Sector;
+	model Win_Bid(event='Yes') = &AllVar &Competitors/ plcl plrl;
+run; 
+*AIC: 175.749; 
 
 ***Traditional Selection Methods***;
 *Backward selection; 
-proc logistic data=logistic.construction_new;
+proc logistic data=training;
 	class Region_of_Country Sector;
-	model resp(event='1') = &AllVar &Competitors/ selection = backwards;
+	model Win_Bid(event='Yes') = &AllVar &Competitors/ selection = backwards;
 run;
-*AIC: 50.762, only two variables included;
+*AIC: 167.884;
 
 *Forward selection; 
-proc logistic data=logistic.construction_new;
+proc logistic data=training;
 	class Region_of_Country Sector;
-	model resp(event='1') = &AllVar &Competitors/ selection = forward;
+	model Win_Bid(event='Yes') = &AllVar &Competitors/ selection = forward;
 run;
-*AIC: 230.556, lots of variables included;
+*AIC: 167.884, same model;  
+
+*Stepwise; 
+proc logistic data=training;
+	class Region_of_Country Sector;
+	model Win_Bid(event='Yes') = &AllVar &Competitors/ selection = stepwise;
+run;
+*AIC: 182.787;
 
 *Using scores;
 proc logistic data=logistic.construction_new;
@@ -69,15 +89,12 @@ proc logistic data=logistic.construction_new;
 	class Region_of_Country Sector;
 	model resp(event='1') = &AllVarN &CompetitorsN/ plcl plrl;
 run;
-*Intial AIC 69.391: 
-*Removed Competitors C,G,H,I: AIC: 61.243;
-*Removed Competitors D and E: AIC: 57.163; 
-*Removed Sector: AIC: 59.704 - added back in, is there a way to just remove some sectors?;
-*Remove Estimated_Years_To_Complete: AIC: 55.418;
-*Remove Competitor B: AIC: 54.116;  
-*Try removing sector again: AIC: 56.814 add back in; 
-*Try removing region: AIC: 59.549 add back in;
-*This could be improved further by removing some sections of sector and region;  
+
+*Forward selection model reduction; 
+
+*taking care of multicollinearity;
+
+*any that need transformations?;
 
 *check for interactions;
 
@@ -85,5 +102,5 @@ run;
 
 *check assumptions; 
 
-*check influential points
+*check influential points - deal with at beginning?;
 
