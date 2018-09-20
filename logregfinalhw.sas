@@ -107,10 +107,10 @@ markup*Competitor_J Number_Of_Competitor_Bids*Competitor_B Competitor_B*Competit
  
 *Model with interactions that lower the AIC;
 %let interact = markup*Competitor_J Number_Of_Competitor_Bids*Competitor_B;
-%let final = markup Number_Of_Competitor_Bids Sector Region_of_Country Competitor_B Competitor_F Competitor_H Competitor_J markup*Competitor_J Number_Of_Competitor_Bids*Competitor_B;
+%let final = markup Number_Of_Competitor_Bids Sector Region_of_Country Competitor_B Competitor_F Competitor_H Competitor_J Number_Of_Competitor_Bids*Competitor_B;
 proc logistic data=training;
 	class Region_of_Country Sector;
-	model Win_Bid(event='Yes') = &backvar &interact;
+	model Win_Bid(event='Yes') = &final;
 	output out=predicted reschi=respearson pred=phat predprobs=x;
 run;
 
@@ -122,7 +122,7 @@ run;
 data predicted;
 set predicted;
  working = (resp - phat)/(phat*(1 - phat));
- respart_markup = -2.5777*markup + working;
+ respart_markup = -1.4469*markup + working;
  respart_num = -1.8089*Number_Of_Competitor_Bids + working;
  run;
 
