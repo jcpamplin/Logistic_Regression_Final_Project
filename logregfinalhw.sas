@@ -159,44 +159,50 @@ loess x=phat y=resp / smooth=0.75 interpolation=cubic clm;
 lineparm x=0 y=0 slope=1 / lineattrs=(color=grey pattern=dash);
 run;
 
+*this is terrible - why???;
 
 *check influential points - deal with at beginning?;
 
-proc sort data=construction;
+proc sort data=logistic.construction;
 by resp;
 run;
 
-proc logistic data=construction plots(MAXPOINTS=NONE only label)=influence;
+proc logistic data=logistic.construction plots(MAXPOINTS=NONE only label)=influence;
+	class Region_of_Country Sector;
 	model resp(event='1') = &final;
 run;
 
-proc logistic data=logistic.insurance_modified plots(MAXPOINTS=NONE only label)=dpc;
+proc logistic data=logistic.construction plots(MAXPOINTS=NONE only label)=dpc;
+	class Region_of_Country Sector;
 	model resp(event='1') = &final;
 run;
 
-proc logistic data=logistic.construction(MAXPOINTS=NONE only label)=dfbetas;
-	model INS(event='1') = &final;
+proc logistic data=logistic.construction plots(MAXPOINTS=NONE only label)=dfbetas;
+	class Region_of_Country Sector;
+	model resp(event='1') = &final;
 run;
 
 
 /* fitting */
 /* roc curve brier score c stat */
 proc logistic data=training plots(only)=ROC(id = prob);
+	class Region_of_Country Sector;
 	model resp(event='1') = &final / rocci; 
-	score data=test out=Valpred outroc=vroc fitstat;
+	score data=testing out=Valpred outroc=vroc fitstat;
 	roc; roccontrast;
 run;
 
 
 /* distribution of predicted probabilities */
 proc logistic data=training noprint;
+	class Region_of_Country Sector;
 	model resp(event='1') = &final; 
 	/* output predicted probabilities */
 	output out=predprobs p=phat;
 run;
 
-
-proc logistic data=test;
+proc logistic data=testing;
+	class Region_of_Country Sector;
 	model resp(event='1') = &final;
 	/* output predicted probabilities */
 	output out=predprobs p=phat;
@@ -222,11 +228,11 @@ run;
 /* classification table */
 /* NOTE that SAS does leave-one-out when computing predicted probabilities,
 so the table results (and youden index) are different than what I have in R */
-proc logistic data=test;
-	class resp;
+proc logistic data=testing;
+	class resp Region_of_Country Sector;
 	model resp(event='1') = &final / ctable pprob = 0 to 0.98 by 0.02;
 	/* output table */
-	score data=test out=Valpred outroc=vroc fitstat;
+	score data=testing out=Valpred outroc=vroc fitstat;
 	ods output classification=classtable;
 	title 'classification table';
 	/* in this table:
