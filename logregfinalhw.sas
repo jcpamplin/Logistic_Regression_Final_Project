@@ -11,6 +11,7 @@ run;
 proc means data=logistic.construction nmiss n mean stddev min max; 
 run; 
 
+*percent mark up;
 data logistic.construction;
 set logistic.construction;
 markup = ((Bid_Price__Millions_ - Estimated_Cost__Millions_)/(Estimated_Cost__Millions_))*100;
@@ -103,7 +104,9 @@ Competitor_B*Competitor_H (AIC: 119.699);
 markup*Competitor_J Number_Of_Competitor_Bids*Competitor_B (AIC:112.231)
 Number_Of_Competitor_Bids*Competitor_B Competitor_B*Competitor_H (AIC: 115.268)
 markup*Competitor_J Competitor_B*Competitor_H (AIC 115.348)
-markup*Competitor_J Number_Of_Competitor_Bids*Competitor_B Competitor_B*Competitor_H (third not significant);
+markup*Competitor_J Number_Of_Competitor_Bids*Competitor_B Competitor_B*Competitor_H (third not significant); 
+
+*competitor B bids more, so this makes sense that this is our interaction term. 
  
 *Model with interactions that lower the AIC;
 %let interact = markup*Competitor_J Number_Of_Competitor_Bids*Competitor_B;
@@ -127,7 +130,7 @@ set predicted;
  run;
 
  /*this will take a lot of time*/
-*ODS GRAPHICS on/LOESSMAXOBS=10000;/* for getting CI for data points > 5000*/
+ODS GRAPHICS off; *LOESSMAXOBS=10000 for getting CI for data points > 5000;
  proc sgplot data=predicted;
  scatter x=markup y= respart_markup;
  loess x=markup y=respart_markup / clm;
@@ -145,12 +148,12 @@ proc sgplot data=predicted;
 *Fit the additive model;  
 proc gam data=training plots=components(clm additive commonaxes);
 	class Region_of_Country Sector;
-	model Win_Bid(event='Yes') = param(&final) spline(markup, df=2)/ dist=binomial link=logit;
+	model Win_Bid(event='Yes') = param(Number_Of_Competitor_Bids Sector Region_of_Country Competitor_B Competitor_F Competitor_H Competitor_J Number_Of_Competitor_Bids*Competitor_B) spline(markup, df=4)/ dist=binomial link=logit;
 run; 
 
 proc gam data=training plots=components(clm additive commonaxes);
 	class Region_of_Country Sector;
-	model Win_Bid(event='Yes') = param(&final) spline(Number_Of_Competitor_Bids, df=2)/ dist=binomial link=logit;
+	model Win_Bid(event='Yes') = param(markup Sector Region_of_Country Competitor_B Competitor_F Competitor_H Competitor_J Number_Of_Competitor_Bids*Competitor_B) spline(Number_Of_Competitor_Bids, df=2)/ dist=binomial link=logit;
 run; 
 
 *Calibration curve;
@@ -159,7 +162,6 @@ loess x=phat y=resp / smooth=0.75 interpolation=cubic clm;
 lineparm x=0 y=0 slope=1 / lineattrs=(color=grey pattern=dash);
 run;
 
-*this is terrible - why???;
 
 *check influential points - deal with at beginning?;
 
@@ -228,7 +230,7 @@ run;
 /* classification table */
 /* NOTE that SAS does leave-one-out when computing predicted probabilities,
 so the table results (and youden index) are different than what I have in R */
-proc logistic data=testing;
+proc logistic data=training;
 	class resp Region_of_Country Sector;
 	model resp(event='1') = &final / ctable pprob = 0 to 0.98 by 0.02;
 	/* output table */
