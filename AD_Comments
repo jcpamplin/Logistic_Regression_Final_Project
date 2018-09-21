@@ -1,0 +1,270 @@
+/*--------------------------------*/
+/*  MSA 2019: Logistic Regression */
+/*           Final HW             */
+/*                                */
+/*         Homework Team 9        */
+/*--------------------------------*/
+
+libname logistic 'C:\Users\Andy Dotter\Documents\Fall_2018\Fall_1\Logistic Regression\Data';
+run;
+/*Calculate means of numerical data. Look for missing data*/
+proc means data=logistic.construction nmiss n mean stddev min max; 
+run; 
+*Calculate percent mark up;
+data logistic.construction;
+set logistic.construction;
+markup = ((Bid_Price__Millions_ - Estimated_Cost__Millions_)/(Estimated_Cost__Millions_))*100;
+run; 
+/*Create macro variables for Competitors and the remaining variables*/
+%let Competitors = Competitor_A Competitor_B Competitor_C Competitor_D Competitor_E Competitor_F Competitor_G Competitor_H Competitor_I Competitor_J;
+%let AllVar = markup Estimated_Years_To_Complete Number_Of_Competitor_Bids Sector Region_of_Country;
+/************************ I CANNOT GET THIS TO WORK, IT TELLS ME THE VARIABLE REGION_OF_COUNTRY IN LIST DOES NOT MATCH TYPE PRESCRIBED.******/
+/*Change the winning bid response variable to binary from Yes No*/
+data logistic.construction;
+set logistic.construction;
+if win_bid = "Yes" then resp = 1;
+else resp = 0;
+run; 
+/*Run an initial logistic regression to evaluate the variables*/
+proc reg data=logistic.construction;
+	model resp = &AllVar &Competitors;
+run;
+quit;
+
+*Probably some multicollinearity going on, so let's explore; 
+proc reg data=logistic.construction;
+	model resp = &AllVar &Competitors / tol vif;
+run;
+quit;
+/*huge multicollinearity with Winning_Bid_Price__Millions_ Bid_Price__Millions_ and Estimated_Cost__Millions_
+/*---------------------------------------*/
+/*Create training and testing data sets*/
+data training testing;
+	set logistic.construction;
+	if ranuni(4) >= .3 then output training;
+    else output testing;
+run;
+
+*Fit a model with all variables from assignment;  
+proc logistic data=training;
+	class Region_of_Country Sector;
+	model Win_Bid(event='Yes') = &AllVar &Competitors/ plcl plrl;
+run; 
+*AIC: 128.457; 
+
+***Traditional Selection Methods***;
+*Backward selection; 
+proc logistic data=training;
+	class Region_of_Country Sector;
+	model Win_Bid(event='Yes') = &AllVar &Competitors/ selection = backwards;
+run;
+*AIC: 121.851;
+
+*Forward selection; 
+proc logistic data=training;
+	class Region_of_Country Sector;
+	model Win_Bid(event='Yes') = &AllVar &Competitors/ selection = forward;
+run;
+*AIC: 122.412, same model;  
+
+*Stepwise; 
+proc logistic data=training;
+	class Region_of_Country Sector;
+	model Win_Bid(event='Yes') = &AllVar &Competitors/ selection = stepwise;
+run;
+*AIC: 122.412;
+
+*Using scores ;
+proc logistic data=logistic.construction;
+	model Win_Bid(event='Yes') = markup Estimated_Years_To_Complete Number_Of_Competitor_Bids &Competitors/ selection=score best=1 ;
+run;
+*don't use this;
+
+*MODEL - backwards elimination;   
+proc logistic data=training;
+	class Region_of_Country Sector;
+	model Win_Bid(event='Yes') = &AllVar &Competitors/ selection = backwards;
+run;
+
+*MODEL - backwards elimination;
+%let backvar = markup Number_Of_Competitor_Bids Sector Region_of_Country Competitor_B Competitor_F Competitor_H Competitor_J;
+proc logistic data=training;
+	class Region_of_Country Sector;
+	model Win_Bid(event='Yes') = &backvar;
+run;
+
+*Check for interactions - additivity;   
+*Checked all combinations of two variables one by one; 
+*Significant ones(alone): 
+markup*Competitor_J (AIC: 118.454)
+Number_Of_Competitor_Bids*Competitor_B (AIC: 117.781) 
+Competitor_B*Competitor_H (AIC: 119.699);  
+
+*Try them together next (4 combinations) 
+markup*Competitor_J Number_Of_Competitor_Bids*Competitor_B (AIC:112.231)
+Number_Of_Competitor_Bids*Competitor_B Competitor_B*Competitor_H (AIC: 115.268)
+markup*Competitor_J Competitor_B*Competitor_H (AIC 115.348)
+markup*Competitor_J Number_Of_Competitor_Bids*Competitor_B Competitor_B*Competitor_H (third not significant); 
+
+*competitor B bids more, so this makes sense that this is our interaction term. 
+ 
+*Model with interactions that lower the AIC;
+%let interact = markup*Competitor_J Number_Of_Competitor_Bids*Competitor_B;
+%let final = markup Number_Of_Competitor_Bids Sector Region_of_Country Competitor_B Competitor_F Competitor_H Competitor_J Number_Of_Competitor_Bids*Competitor_B;
+/*Create output dataset using out= statement*/
+proc logistic data=training;
+	class Region_of_Country Sector;
+	model Win_Bid(event='Yes') = &final;
+	output out=predicted reschi=respearson pred=phat predprobs=x;
+run;
+
+/* Check for Influential points*/
+/*Sort the data first*/
+proc sort data=logistic.construction;
+by resp;
+run;
+/*499 is definitly an outlier, we should look into this and see*/
+proc logistic data=logistic.construction plots(MAXPOINTS=NONE only label)=influence;
+	class Region_of_Country Sector;
+	model resp(event='1') = &final;
+run;
+
+proc logistic data=logistic.construction plots(MAXPOINTS=NONE only label)=dpc;
+	class Region_of_Country Sector;
+	model resp(event='1') = &final;
+run;
+
+proc logistic data=logistic.construction plots(MAXPOINTS=NONE only label)=dfbetas;
+	class Region_of_Country Sector;
+	model resp(event='1') = &final;
+run;
+/*Limit results to leverage point observations*/
+/*Just change firstobs and or obs to get observation*/
+proc print data=logistic.construction (firstobs=499 Obs=499);
+run;
+*Check linearity assumption;  
+*Continuous variables: markup and Number_Of_Competitor_Bids (do I check the interaction?);
+
+*Check partial residuals; 
+/* coefficients improved than before --> modified_savbal = 0.1476*/
+data predicted;
+set predicted;
+ working = (resp - phat)/(phat*(1 - phat));
+ respart_markup = -1.4469*markup + working;
+ respart_num = -1.8089*Number_Of_Competitor_Bids + working;
+ run;
+
+ /*this will take a lot of time*/
+ODS GRAPHICS off; *LOESSMAXOBS=10000 for getting CI for data points > 5000;
+ proc sgplot data=predicted;
+ scatter x=markup y= respart_markup;
+ loess x=markup y=respart_markup / clm;
+ reg x=markup y=respart_markup / nomarkers;
+ run;
+
+proc sgplot data=predicted;
+ scatter x=Number_Of_Competitor_Bids y= respart_num;
+ loess x=Number_Of_Competitor_Bids y= respart_num / clm;
+ reg x=Number_Of_Competitor_Bids y= respart_num/ nomarkers;
+ run;  
+ODS GRAPHICS ON;
+*these both look great!;
+/*CAN SOMEONE EXPLAIN WHAT THE OUPUT OF THESE MEAN TO ME*/
+*Fit the additive model, Is this still an addative model? I am not sure if the addition of the interaction terms make it additive?;  
+proc gam data=training plots=components(clm additive commonaxes);
+	class Region_of_Country Sector;
+	model Win_Bid(event='Yes') = param(Number_Of_Competitor_Bids Sector Region_of_Country Competitor_B Competitor_F Competitor_H Competitor_J Number_Of_Competitor_Bids*Competitor_B) spline(markup, df=4)/ dist=binomial link=logit;
+run; 
+
+proc gam data=training plots=components(clm additive commonaxes);
+	class Region_of_Country Sector;
+	model Win_Bid(event='Yes') = param(markup Sector Region_of_Country Competitor_B Competitor_F Competitor_H Competitor_J Number_Of_Competitor_Bids*Competitor_B) spline(Number_Of_Competitor_Bids, df=2)/ dist=binomial link=logit;
+run; 
+
+*Calibration curve;
+/*LOOKS LIKE OUR MODEL IS UNDERPREDICTING A YES WHEN IT HAS A LOW PROBABILITY*/
+proc sgplot data=predicted;
+loess x=phat y=resp / smooth=0.75 interpolation=cubic clm;
+lineparm x=0 y=0 slope=1 / lineattrs=(color=grey pattern=dash);
+run;
+
+
+
+
+
+/* fitting */
+/* roc curve brier score c stat */
+/*this is scoring the test dataset, but it is giving a near perfect ROC curve?*/
+proc logistic data=training /*plots(only)=ROC(id = prob)*/;
+	class Region_of_Country Sector;
+	model resp(event='1') = &final / rocci; 
+	score data=testing out=Valpred outroc=vroc fitstat;
+	roc; roccontrast;
+run;
+
+ODS Graphics ON;
+/* distribution of predicted probabilities */
+/*Nothing prints out when I run this code*/
+proc logistic data=training noprint;
+	class Region_of_Country Sector;
+	model resp(event='1') = &final; 
+	/* output predicted probabilities */
+	output out=predprobs p=phat;
+run;
+/*This prints results but no graph*/
+proc logistic data=testing;
+	class Region_of_Country Sector;
+	model resp(event='1') = &final;
+	/* output predicted probabilities */
+	output out=predprobs p=phat;
+run;
+
+/* graphics -- sorting by low to get mean(1s) - mean(0s) in the next step.
+that's the coefficient of discrimination */
+proc sort data=predprobs;
+by descending resp;
+run;
+
+/* proc ttest will give the coefficient of discrimination.
+also gives a nice histogram (with density overlaid)
+and boxplots for each group */
+/*This is showing like a 74% coefficient of discrimination, that seems unlikely high, again is this the correct dataset*/
+proc ttest data=Valpred order=data;
+ods select statistics summarypanel;
+class resp;
+var P_1;
+title 'coefficient of discrimination and plots';
+run;
+
+/* classification table */
+/* NOTE that SAS does leave-one-out when computing predicted probabilities,
+so the table results (and youden index) are different than what I have in R */
+proc logistic data=training;
+	class resp Region_of_Country Sector;
+	model resp(event='1') = &final / ctable pprob = 0 to 0.98 by 0.02;
+	/* output table */
+	score data=testing out=Valpred outroc=vroc fitstat;
+	ods output classification=classtable;
+	title 'classification table';
+	/* in this table:
+	true positives = "number of correct events"
+	true negatives = "number of correct nonevents"
+	false positive = "number of incorrect events"
+	false negative = "number of incorrect nonevents" */
+run;
+
+
+
+/* Youden's J statistic */
+/*This is a strange output, the youdens J statistic is maximized at 0.040 which is really low!*/
+data classtable;
+set classtable;
+/* using 100 because sas gives these in percentages */
+youden = sensitivity + specificity - 100;
+/* weighted youden would be 2*(w*sens + (1-w)*spec) - 100, where w is between 0 and 100 */
+run;
+proc sort data=classtable;
+by descending youden;
+run;
+proc print data=classtable;
+run;
