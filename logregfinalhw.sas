@@ -165,21 +165,21 @@ run;
 
 *check influential points - deal with at beginning?;
 
-proc sort data=logistic.construction;
+proc sort data=training;
 by resp;
 run;
 
-proc logistic data=logistic.construction plots(MAXPOINTS=NONE only label)=influence;
+proc logistic data=training plots(MAXPOINTS=NONE only label)=influence;
 	class Region_of_Country Sector;
 	model resp(event='1') = &final;
 run;
 
-proc logistic data=logistic.construction plots(MAXPOINTS=NONE only label)=dpc;
+proc logistic data=training plots(MAXPOINTS=NONE only label)=dpc;
 	class Region_of_Country Sector;
 	model resp(event='1') = &final;
 run;
 
-proc logistic data=logistic.construction plots(MAXPOINTS=NONE only label)=dfbetas;
+proc logistic data=training plots(MAXPOINTS=NONE only label)=dfbetas;
 	class Region_of_Country Sector;
 	model resp(event='1') = &final;
 run;
