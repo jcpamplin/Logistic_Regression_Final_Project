@@ -131,14 +131,18 @@ set predicted;
 
  /*this will take a lot of time*/
 ODS GRAPHICS off; *LOESSMAXOBS=10000 for getting CI for data points > 5000;
- proc sgplot data=predicted;
+proc sgplot data=predicted;
  scatter x=markup y= respart_markup;
+ xaxis label="Markup"; 
+ yaxis label="partial (deviance) residuals";
  loess x=markup y=respart_markup / clm;
  reg x=markup y=respart_markup / nomarkers;
  run;
 
 proc sgplot data=predicted;
  scatter x=Number_Of_Competitor_Bids y= respart_num;
+ xaxis label="Number of Competitor Bids"; 
+ yaxis label="partial (deviance) residuals";
  loess x=Number_Of_Competitor_Bids y= respart_num / clm;
  reg x=Number_Of_Competitor_Bids y= respart_num/ nomarkers;
  run;  
@@ -158,6 +162,7 @@ run;
 
 *Calibration curve;
 proc sgplot data=predicted;
+yaxis label="Win_Bid";
 loess x=phat y=resp / smooth=0.75 interpolation=cubic clm;
 lineparm x=0 y=0 slope=1 / lineattrs=(color=grey pattern=dash);
 run;
