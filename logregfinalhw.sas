@@ -17,8 +17,13 @@ set logistic.construction;
 markup = ((Bid_Price__Millions_ - Estimated_Cost__Millions_)/(Estimated_Cost__Millions_))*100;
 run; 
 
+data logistic.construction;
+set logistic.construction;
+comp = (Competitor_A + Competitor_B + Competitor_C + Competitor_D + Competitor_E + Competitor_F + Competitor_G + Competitor_H + Competitor_I + Competitor_J);
+run;
+
 %let Competitors = Competitor_A Competitor_B Competitor_C Competitor_D Competitor_E Competitor_F Competitor_G Competitor_H Competitor_I Competitor_J;
-%let AllVar = markup Estimated_Years_To_Complete Number_Of_Competitor_Bids Sector Region_of_Country;
+%let AllVar = markup Estimated_Years_To_Complete Sector Region_of_Country;
 
 data logistic.construction;
 set logistic.construction;
@@ -56,64 +61,40 @@ run;
 *Backward selection; 
 proc logistic data=training;
 	class Region_of_Country Sector;
-	model Win_Bid(event='Yes') = &AllVar &Competitors/ selection = backwards;
+	model Win_Bid(event='Yes') = &AllVar comp/ selection = backwards;
 run;
-*AIC: 121.851;
+*AIC: 190;
 
 *Forward selection; 
 proc logistic data=training;
 	class Region_of_Country Sector;
-	model Win_Bid(event='Yes') = &AllVar &Competitors/ selection = forward;
+	model Win_Bid(event='Yes') = &AllVar comp/ selection = forward;
 run;
-*AIC: 122.412, same model;  
+*AIC: 190, the winner;  
 
 *Stepwise; 
 proc logistic data=training;
 	class Region_of_Country Sector;
-	model Win_Bid(event='Yes') = &AllVar &Competitors/ selection = stepwise;
+	model Win_Bid(event='Yes') = &AllVar comp/ selection = stepwise;
 run;
-*AIC: 122.412;
+*AIC: 190;
 
-*Using scores ;
-proc logistic data=logistic.construction;
-	model Win_Bid(event='Yes') = markup Estimated_Years_To_Complete Number_Of_Competitor_Bids &Competitors/ selection=score best=1 ;
-run;
-*don't use this;
-
-*MODEL - backwards elimination;   
-proc logistic data=training;
-	class Region_of_Country Sector;
-	model Win_Bid(event='Yes') = &AllVar &Competitors/ selection = backwards;
-run;
-
-*MODEL - backwards elimination;
-%let backvar = markup Number_Of_Competitor_Bids Sector Region_of_Country Competitor_B Competitor_F Competitor_H Competitor_J;
+*MODEL - forward;
+%let backvar = markup Estimated_Years_To_Complete Sector Region_of_Country comp;
 proc logistic data=training;
 	class Region_of_Country Sector;
 	model Win_Bid(event='Yes') = &backvar;
 run;
 
 *Check for interactions - additivity;   
-*Checked all combinations of two variables one by one; 
-*Significant ones(alone): 
-markup*Competitor_J (AIC: 118.454)
-Number_Of_Competitor_Bids*Competitor_B (AIC: 117.781) 
-Competitor_B*Competitor_H (AIC: 119.699);  
+*Check for interactions between the biggest main effects: markup and estimated years to complete; 
+*Not significant or have no logical interpretation;
+%let interact = markup*Estimated_Years_To_Complete markup*comp comp*Estimated_Years_To_Complete;
 
-*Try them together next (4 combinations) 
-markup*Competitor_J Number_Of_Competitor_Bids*Competitor_B (AIC:112.231)
-Number_Of_Competitor_Bids*Competitor_B Competitor_B*Competitor_H (AIC: 115.268)
-markup*Competitor_J Competitor_B*Competitor_H (AIC 115.348)
-markup*Competitor_J Number_Of_Competitor_Bids*Competitor_B Competitor_B*Competitor_H (third not significant); 
-
-*competitor B bids more, so this makes sense that this is our interaction term. 
- 
-*Model with interactions that lower the AIC;
-%let interact = markup*Competitor_J Number_Of_Competitor_Bids*Competitor_B;
-%let final = markup Number_Of_Competitor_Bids Sector Region_of_Country Competitor_B Competitor_F Competitor_H Competitor_J Number_Of_Competitor_Bids*Competitor_B;
+*Model;
 proc logistic data=training;
 	class Region_of_Country Sector;
-	model Win_Bid(event='Yes') = &final;
+	model Win_Bid(event='Yes') = &backvar;
 	output out=predicted reschi=respearson pred=phat predprobs=x;
 run;
 
@@ -125,13 +106,14 @@ run;
 data predicted;
 set predicted;
  working = (resp - phat)/(phat*(1 - phat));
- respart_markup = -1.4469*markup + working;
- respart_num = -1.8089*Number_Of_Competitor_Bids + working;
+ respart_markup = -0.5227*markup + working;
+ respart_est = 0.4103*Estimated_Years_To_Complete + working;
+ respart_comp = -1.0069*comp + working;
  run;
-
+title;
  /*this will take a lot of time*/
-ODS GRAPHICS off; *LOESSMAXOBS=10000 for getting CI for data points > 5000;
-proc sgplot data=predicted;
+ODS GRAPHICS on; *LOESSMAXOBS=10000 for getting CI for data points > 5000;
+ proc sgplot data=predicted;
  scatter x=markup y= respart_markup;
  xaxis label="Markup"; 
  yaxis label="partial (deviance) residuals";
@@ -139,26 +121,39 @@ proc sgplot data=predicted;
  reg x=markup y=respart_markup / nomarkers;
  run;
 
-proc sgplot data=predicted;
- scatter x=Number_Of_Competitor_Bids y= respart_num;
- xaxis label="Number of Competitor Bids"; 
+ proc sgplot data=predicted;
+ scatter x=comp y= respart_comp;
+ xaxis label="Comp"; 
  yaxis label="partial (deviance) residuals";
- loess x=Number_Of_Competitor_Bids y= respart_num / clm;
- reg x=Number_Of_Competitor_Bids y= respart_num/ nomarkers;
+ loess x=comp y=respart_comp / clm;
+ reg x=comp y=respart_comp / nomarkers;
+ run;
+
+proc sgplot data=predicted;
+ scatter x=Estimated_Years_To_Complete y= respart_est;
+ xaxis label="Estimated Years to Complete"; 
+ yaxis label="partial (deviance) residuals";
+ loess x=Estimated_Years_To_Complete y= respart_est / clm;
+ reg x=Estimated_Years_To_Complete y= respart_est / nomarkers;
  run;  
 
- *these both look great!;
+ *these both look okay;
 
 *Fit the additive model;  
 proc gam data=training plots=components(clm additive commonaxes);
 	class Region_of_Country Sector;
-	model Win_Bid(event='Yes') = param(Number_Of_Competitor_Bids Sector Region_of_Country Competitor_B Competitor_F Competitor_H Competitor_J Number_Of_Competitor_Bids*Competitor_B) spline(markup, df=4)/ dist=binomial link=logit;
+	model Win_Bid(event='Yes') = param(Estimated_Years_To_Complete Sector Region_of_Country comp) spline(markup, df=4)/ dist=binomial link=logit;
 run; 
 
 proc gam data=training plots=components(clm additive commonaxes);
 	class Region_of_Country Sector;
-	model Win_Bid(event='Yes') = param(markup Sector Region_of_Country Competitor_B Competitor_F Competitor_H Competitor_J Number_Of_Competitor_Bids*Competitor_B) spline(Number_Of_Competitor_Bids, df=2)/ dist=binomial link=logit;
-run; 
+	model Win_Bid(event='Yes') = param(markup Sector Region_of_Country comp) spline(Estimated_Years_To_Complete, df=4)/ dist=binomial link=logit;
+run;  
+
+proc gam data=training plots=components(clm additive commonaxes);
+	class Region_of_Country Sector;
+	model Win_Bid(event='Yes') = param(markup Estimated_Years_To_Complete Sector Region_of_Country) spline(comp, df=4)/ dist=binomial link=logit;
+run;  
 
 *Calibration curve;
 proc sgplot data=predicted;
@@ -167,26 +162,24 @@ loess x=phat y=resp / smooth=0.75 interpolation=cubic clm;
 lineparm x=0 y=0 slope=1 / lineattrs=(color=grey pattern=dash);
 run;
 
-
 *check influential points - deal with at beginning?;
-
-proc sort data=training;
+proc sort data=logistic.construction;
 by resp;
 run;
 
-proc logistic data=training plots(MAXPOINTS=NONE only label)=influence;
+proc logistic data=logistic.construction plots(MAXPOINTS=NONE only label)=influence;
 	class Region_of_Country Sector;
-	model resp(event='1') = &final;
+	model resp(event='1') = &backvar;
 run;
 
-proc logistic data=training plots(MAXPOINTS=NONE only label)=dpc;
+proc logistic data=logistic.construction plots(MAXPOINTS=NONE only label)=dpc;
 	class Region_of_Country Sector;
-	model resp(event='1') = &final;
+	model resp(event='1') = &backvar;
 run;
 
-proc logistic data=training plots(MAXPOINTS=NONE only label)=dfbetas;
+proc logistic data=logistic.construction plots(MAXPOINTS=NONE only label)=dfbetas;
 	class Region_of_Country Sector;
-	model resp(event='1') = &final;
+	model resp(event='1') = &backvar;
 run;
 
 
@@ -194,7 +187,7 @@ run;
 /* roc curve brier score c stat */
 proc logistic data=training plots(only)=ROC(id = prob);
 	class Region_of_Country Sector;
-	model resp(event='1') = &final / rocci; 
+	model resp(event='1') = &backvar / rocci; 
 	score data=testing out=Valpred outroc=vroc fitstat;
 	roc; roccontrast;
 run;
@@ -203,14 +196,14 @@ run;
 /* distribution of predicted probabilities */
 proc logistic data=training noprint;
 	class Region_of_Country Sector;
-	model resp(event='1') = &final; 
+	model resp(event='1') = &backvar; 
 	/* output predicted probabilities */
 	output out=predprobs p=phat;
 run;
 
 proc logistic data=testing;
 	class Region_of_Country Sector;
-	model resp(event='1') = &final;
+	model resp(event='1') = &backvar;
 	/* output predicted probabilities */
 	output out=predprobs p=phat;
 run;
@@ -248,8 +241,6 @@ proc logistic data=training;
 	false positive = "number of incorrect events"
 	false negative = "number of incorrect nonevents" */
 run;
-
-
 
 /* Youden's J statistic */
 data classtable;
